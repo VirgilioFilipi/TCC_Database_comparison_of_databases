@@ -1,20 +1,14 @@
 import subprocess
 import pymysql
+from influxdb_client import InfluxDBClient, BucketsApi
 import configparser
 import csv
 import json
-from influxdb_client import InfluxDBClient, Point
-
 
 class TableManager:
-    """
-    Classe responsável pela criação e gerenciamento de tabelas em diferentes bancos de dados (MariaDB e InfluxDB).
-    """
-
     def __init__(self):
-        """Inicializa as credenciais de acesso aos bancos de dados a partir do arquivo config.ini."""
         config = configparser.ConfigParser()
-        config.read("config.ini")
+        config.read('config.ini')
 
         self.credentials = {
             db_name: {
@@ -36,37 +30,20 @@ class TableManager:
         self.influx_org = config.get("influxdb", "org")
         self.influx_bucket = config.get("influxdb", "bucket")
 
-    def create_all_tables(self) -> list:
-        """
-        Cria todas as tabelas dos bancos de dados MariaDB e InfluxDB.
-
-        Returns:
-            list: Lista com os status de cada criação de tabela.
-        """
+    def create_all_tables(self):
+        """Cria todas as tabelas e salva registros no arquivo CSV."""
         file_name = "output/insertion_times.csv"
         header = ["table_name", "insertion_time", "current_week", "round_number", "ram_usage", "swap_usage", "storage"]
 
         with open(file_name, mode="w", newline="") as file:
             csv.writer(file).writerow(header)
 
-        results = []
-        results.append(self.create_influx_database())
-
+        self.create_influx_database()
         for db_name in self.credentials.keys():
-            results.append(self.create_table(db_name))
+            self.create_table(db_name)
 
-        return results
-
-    def create_table(self, db_name: str) -> str:
-        """
-        Cria um banco de dados e sua tabela associada.
-
-        Args:
-            db_name (str): Nome do banco de dados a ser criado.
-
-        Returns:
-            str: Mensagem de sucesso ou erro.
-        """
+    def create_table(self, db_name):
+        """Cria um banco de dados e sua tabela associada."""
         print(f"----------------------\nCriando {db_name}")
 
         try:
@@ -88,65 +65,85 @@ class TableManager:
 
             size = self.get_docker_volume_size_by_container(db_name)
             print(f"*********************\n{db_name} {size}\n*********************")
-            return f"Banco {db_name} criado com sucesso."
 
         except pymysql.MySQLError as e:
-            return f"Erro ao criar banco de dados ou tabela {db_name}: {e}"
+            print(f"Erro ao criar banco de dados ou tabela {db_name}: {e}")
 
-    def get_table_schema(self, db_name: str) -> str:
-        """
-        Retorna o esquema SQL adequado para cada banco de dados.
+    def get_table_schema(self, db_name):
+        """Retorna o schema SQL adequado para cada banco."""
 
-        Args:
-            db_name (str): Nome do banco de dados.
-
-        Returns:
-            str: Comando SQL para criação da tabela.
-        """
-        schemas = {
-            "mariadb_columnstore": """
+        if db_name == "mariadb_columnstore":
+            return """
                 CREATE TABLE sensor_data (
                     event_timestamp TIMESTAMP NOT NULL,
                     temperature FLOAT(4) NOT NULL,
                     sensor_name VARCHAR(10) NOT NULL
                 ) ENGINE=ColumnStore;
-            """,
-            "mariadb_innodb": """
+            """
+
+        elif db_name == "mariadb_innodb":
+            return """
                 CREATE TABLE IF NOT EXISTS sensor_data (
                     event_timestamp TIMESTAMP NOT NULL,
                     temperature FLOAT(4) NOT NULL,
                     sensor_name VARCHAR(10) NOT NULL
                 ) ENGINE=InnoDB;
-            """,
-            "mariadb_innodb_optimized": """
+            """
+
+        elif db_name == "mariadb_innodb_optimized":
+            return """
                 CREATE TABLE sensor_data (
                     event_timestamp TIMESTAMP NOT NULL,
                     temperature FLOAT(4) NOT NULL,
                     sensor_name VARCHAR(10) NOT NULL,
                     year_number INT NOT NULL,
+
+                    -- Índices para acelerar buscas
+                    INDEX idx_sensor (sensor_name),
+                    INDEX idx_event_timestamp(event_timestamp),
+                    INDEX idx_year (year_number),
+                    INDEX idx_sensor_event (sensor_name, event_timestamp),
+                    INDEX idx_year_sensor_event_timestamp (year_number, sensor_name, event_timestamp),
+
+                    -- Chave primária para evitar erro 1503
                     PRIMARY KEY (year_number, sensor_name, event_timestamp)
-                ) ENGINE=InnoDB;
-            """,
-            "mariadb_myrocks": """
+                ) ENGINE=InnoDB
+                PARTITION BY RANGE (year_number) (
+                    PARTITION p2022 VALUES LESS THAN (2023),
+                    PARTITION p2023 VALUES LESS THAN (2024),
+                    PARTITION p2024 VALUES LESS THAN (2025),
+                    PARTITION pMax VALUES LESS THAN MAXVALUE
+                );
+            """
+
+        elif db_name == "mariadb_myrocks":
+            return """
                 CREATE TABLE sensor_data (
                     event_timestamp TIMESTAMP NOT NULL,
                     temperature FLOAT(4) NOT NULL,
                     sensor_name VARCHAR(10) NOT NULL,
                     year_number INT NOT NULL,
+
+                    -- Índices individuais e compostos
+                    INDEX idx_sensor (sensor_name),
+                    INDEX idx_event_timestamp(event_timestamp),
+                    INDEX idx_year (year_number),
+                    INDEX idx_sensor_event (sensor_name, event_timestamp),
+                    INDEX idx_year_sensor_event_timestamp (year_number, sensor_name, event_timestamp),
+
+                    -- Chave primária para evitar erro 1503
                     PRIMARY KEY (year_number, sensor_name, event_timestamp)
-                ) ENGINE=ROCKSDB;
-            """,
-        }
+                ) ENGINE=ROCKSDB
+                PARTITION BY RANGE (year_number) (
+                    PARTITION p2022 VALUES LESS THAN (2023),
+                    PARTITION p2023 VALUES LESS THAN (2024),
+                    PARTITION p2024 VALUES LESS THAN (2025),
+                    PARTITION pMax VALUES LESS THAN MAXVALUE
+                );
+            """
 
-        return schemas.get(db_name, "")
-
-    def create_influx_database(self) -> str:
-        """
-        Cria um bucket no InfluxDB.
-
-        Returns:
-            str: Mensagem de sucesso ou erro.
-        """
+    def create_influx_database(self):
+        """Cria um bucket no InfluxDB."""
         print("----------------------\nCriando InfluxDB")
         try:
             client = InfluxDBClient(url=self.influx_url, token=self.influx_token, org=self.influx_org)
@@ -162,22 +159,12 @@ class TableManager:
             print(f"Bucket '{self.influx_bucket}' criado com sucesso.")
             client.close()
 
-            return f"Bucket {self.influx_bucket} criado com sucesso."
-
         except Exception as e:
-            return f"Erro ao criar bucket no InfluxDB: {e}"
+            print(f"Erro ao criar bucket no InfluxDB: {e}")
 
     @staticmethod
-    def get_docker_volume_size_by_container(container_name: str) -> str:
-        """
-        Retorna o tamanho total dos volumes Docker associados a um container.
-
-        Args:
-            container_name (str): Nome do container Docker.
-
-        Returns:
-            str: Tamanho do volume ou mensagem de erro.
-        """
+    def get_docker_volume_size_by_container(container_name):
+        """Retorna o tamanho total dos volumes Docker associados a um container."""
         try:
             inspect_result = subprocess.run(["docker", "inspect", container_name], capture_output=True, text=True)
             if inspect_result.returncode != 0:
@@ -188,23 +175,26 @@ class TableManager:
             if not mounts:
                 return "Nenhum volume encontrado."
 
-            total_size = sum(int(subprocess.run(["sudo", "du", "-sb", mount.get("Source")], capture_output=True, text=True).stdout.strip().split()[0]) for mount in mounts if mount.get("Source"))
+            total_size = 0
+            for mount in mounts:
+                source_path = mount.get("Source")
+                if not source_path:
+                    continue
+
+                du_result = subprocess.run(["sudo", "du", "-sb", source_path], capture_output=True, text=True)
+                if du_result.returncode != 0:
+                    return f"Erro ao calcular tamanho: {du_result.stderr.strip()}"
+
+                total_size += int(du_result.stdout.strip().split()[0])
+
             return TableManager.convert_size(total_size)
 
         except Exception as e:
             return f"Erro ao calcular tamanho do volume: {e}"
 
     @staticmethod
-    def convert_size(size_in_bytes: int) -> str:
-        """
-        Converte bytes para formato legível (KB, MB, GB).
-
-        Args:
-            size_in_bytes (int): Tamanho em bytes.
-
-        Returns:
-            str: Tamanho formatado.
-        """
+    def convert_size(size_in_bytes):
+        """Converte bytes para formato legível (KB, MB, GB)."""
         for unit in ["B", "KB", "MB", "GB", "TB"]:
             if size_in_bytes < 1024:
                 return f"{size_in_bytes:.2f} {unit}"
