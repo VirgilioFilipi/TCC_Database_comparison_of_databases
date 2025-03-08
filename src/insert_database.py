@@ -5,6 +5,7 @@ from datetime import datetime
 import psutil  
 import subprocess
 import json
+import configparser
 from influxdb_client import InfluxDBClient, Point
 
 class InsertDatabase:
@@ -52,8 +53,7 @@ class InsertDatabase:
                     ["sudo", "du", "-sb", source_path],
                     capture_output=True,
                     text=True,
-                )
-                
+                )                
                 if du_result.returncode != 0:
                     return f"Erro ao calcular tamanho do volume {source_path}: {du_result.stderr.strip()}"
                 
@@ -117,11 +117,12 @@ class InsertDatabase:
                         port: int
                         ) -> None:
 
+        db_config = cls.load_db_config()  # Carregar usuário e senha do config.ini
         conn = pymysql.connect(
-            host='localhost',
+            host=db_config["host"],
             port=port,
-            user='root',
-            password='vir937',
+            user=db_config["user"],
+            password=db_config["password"],
             database=db_name
         )
         cursor = conn.cursor()
@@ -186,11 +187,12 @@ class InsertDatabase:
         Returns:
             None
         """
+        db_config = cls.load_db_config()  # Carregar usuário e senha do config.ini
         conn = pymysql.connect(
-            host='localhost',
+            host=db_config["host"],
             port=port,
-            user='root',
-            password='vir937',
+            user=db_config["user"],
+            password=db_config["password"],
             database=db_name
         )
         cursor = conn.cursor()
@@ -200,9 +202,7 @@ class InsertDatabase:
         for row in data_to_insert:
             event_timestamp = row[0]
             date_obj = datetime.strptime(event_timestamp, '%Y-%m-%d %H:%M:%S')
-            month_number = date_obj.year * 100 + date_obj.month
             year_number = date_obj.year
-            week_number = date_obj.isocalendar()[1]
             data_with_month_year_week.append((event_timestamp, row[1], row[2], year_number))
 
         table_size_before = cls.get_docker_volume_size_by_container(db_name)
@@ -247,20 +247,16 @@ class InsertDatabase:
             file_name_insertion: str
         ) -> None:
 
-        influx_url = "http://localhost:8086"  
-        influx_token = "zP0_4GtTGnhft9VEpbGg-sXSSQrBDUAJvQjhzwwWAetwColohqnV_CUqjoB-BgB4fHbuatzdDaz2PAqhLxR5kQ=="
-        influx_org = "virgilio"
-        influx_bucket = "influx_bucket"
+        config = configparser.ConfigParser()
+        config.read('config.ini')
 
-        bucket_size = cls.get_docker_volume_size_influxdb('influxdb-data')
-
-        print('*********************')
-        print('Influxdb', bucket_size)
-        print('*********************')
+        influx_url = config.get("influxdb", "url")
+        influx_token = config.get("influxdb", "token")
+        influx_org = config.get("influxdb", "org")
+        influx_bucket = config.get("influxdb", "bucket")
 
         client = InfluxDBClient(url=influx_url, token=influx_token, org=influx_org)
         write_api = client.write_api()
-
         start_time = time.time()
 
         try:
@@ -300,8 +296,6 @@ class InsertDatabase:
             print(f"Tempo de inserção no InfluxDB: {insertion_time:.2f} segundos")
 
             bucket_size = cls.get_docker_volume_size_influxdb('influxdb-data')
-            print(f"Tamanho do bucket '{bucket_size}'")
-
             memory_info = psutil.virtual_memory()
             swap_info = psutil.swap_memory()
 
@@ -317,5 +311,16 @@ class InsertDatabase:
 
         finally:
             write_api.__del__()  # Fecha a conexão com a API de escrita
+
+    @staticmethod
+    def load_db_config():
+        config = configparser.ConfigParser()
+        config.read("config.ini")
+
+        return {
+            "host": config.get("database", "host", fallback="localhost"),
+            "user": config.get("database", "user"),
+            "password": config.get("database", "password")
+        }
 
 

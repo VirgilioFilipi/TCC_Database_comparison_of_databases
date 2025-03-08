@@ -141,7 +141,6 @@ class TableManager:
                     PARTITION pMax VALUES LESS THAN MAXVALUE
                 );
             """
-
     def create_influx_database(self):
         """Cria um bucket no InfluxDB."""
         print("----------------------\nCriando InfluxDB")
