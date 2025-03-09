@@ -26,8 +26,8 @@ O projeto está organizado em diferentes módulos, cada um responsável por uma 
 📂 **`src/`** - Implementação principal do estudo:
 - [`main.py`](main.py) - Script principal que executa os experimentos.
 - [`insert_database.py`](src/insert_database.py) - Insere dados nos bancos MariaDB e InfluxDB.
-- [`query_database.py`](src/query_database.py) - Executa consultas nos bancos.
-- [`function_query.py`](src/function_query.py) - Funções auxiliares para consultas.
+- [`query_database.py`](src/query_database.py) - Cria as query.
+- [`function_query.py`](src/function_query.py) - Funções auxiliares para query.
 - [`save_data.py`](src/save_data.py) - Salva métricas de tempo de inserção e consulta.
 - [`table_manager.py`](src/table_manager.py) - Gerencia a criação das tabelas nos bancos.
 

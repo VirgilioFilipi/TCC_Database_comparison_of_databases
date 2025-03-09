@@ -1,7 +1,7 @@
 import csv
 from datetime import datetime
 from src.insert_database import InsertDatabase
-from src.query_database import QueryDatabase
+from src.function_query import FunctionQuery
 from src.table_manager import TableManager
 
 BATCH_SIZE = 100000
@@ -97,11 +97,11 @@ def process_queries() -> None:
         writer.writerow(HEADER_QUERY)
     
     for round_number in range(1, ROUND_NUMBER):
-        QueryDatabase.query_mariadb("mariadb_innodb", 3308, round_number, FILE_QUERY)
-        QueryDatabase.query_mariadb_structured("mariadb_innodb_optimized", 3309, round_number, FILE_QUERY)
-        QueryDatabase.query_mariadb_structured("mariadb_myrocks", 3310, round_number, FILE_QUERY)
-        QueryDatabase.query_mariadb("mariadb_columnstore", 3307, round_number, FILE_QUERY)
-        QueryDatabase.query_influxdb(round_number, FILE_QUERY)
+        FunctionQuery.query_mariadb("mariadb_innodb", 3308, round_number, FILE_QUERY)
+        FunctionQuery.query_mariadb_structured("mariadb_innodb_optimized", 3309, round_number, FILE_QUERY)
+        FunctionQuery.query_mariadb_structured("mariadb_myrocks", 3310, round_number, FILE_QUERY)
+        FunctionQuery.query_mariadb("mariadb_columnstore", 3307, round_number, FILE_QUERY)
+        FunctionQuery.query_influxdb(round_number, FILE_QUERY)
 
 def main() -> None:
     """
