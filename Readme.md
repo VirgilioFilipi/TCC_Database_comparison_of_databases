@@ -64,7 +64,6 @@ source venv/bin/activate
 python -m venv venv
 venv\Scripts\Activate
 ```
-
 ---
 
 ### 3️⃣ **Instalar as Dependências**
